@@ -2,7 +2,7 @@ import requests
 import logging
 from requests import RequestException
 
-from graviteeio_cli.exeptions import GraviteeioRequestError
+from graviteeio_cli.exeptions import GraviteeioRequestError, AuthenticationError
 
 logger = logging.getLogger("client.HttpClient")
 
@@ -24,23 +24,30 @@ class HttpClient:
         return self.request("PUT", path=path, data=data, **kwargs)
 
     def request(self, verbe, path="", **kwargs):
+
+        params = kwargs
+
+        params["proxies"] = self.config.proxies
+        params["timeout"] = self.timeout
+
+        if self.config.get_bearer():
+            self.headers["Authorization"] = self.config.get_bearer_header()["Authorization"]
+
+        params["headers"] = self.headers
         try:
-
-            params = kwargs
-
-            params["proxies"] = self.config.proxies
-            params["timeout"] = self.timeout
-
-            if self.config.get_bearer():
-                self.headers["Authorization"] = self.config.get_bearer_header()["Authorization"]
-
-            params["headers"] = self.headers
             response = requests.request(verbe, self.config.url(self.context + path), **params)
             self._check(response)
+
             return response
         except RequestException:
             logger.exception("api_client Request exception")
             raise GraviteeioRequestError(msg="Error Connecting to server")
+        except AuthenticationError:
+            msg = "Unauthorized access to the resource."
+            auth = self.config.get_bearer_header()
+            if not auth or "Authorization" not in auth:
+                msg = msg + " No authentication found."
+            raise AuthenticationError(msg)
 
     def _check(self, response):
 
